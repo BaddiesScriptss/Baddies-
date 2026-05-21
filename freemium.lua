@@ -1,1 +1,1 @@
-
+-- This file is no longer in use. See script.lua for the current version.
